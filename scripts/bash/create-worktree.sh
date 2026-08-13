@@ -20,7 +20,7 @@
 set -euo pipefail
 
 # --- defaults ---
-LAYOUT="sibling"
+LAYOUT="nested"
 WORKTREE_PATH_OVERRIDE=""
 IN_PLACE=false
 JSON_MODE=false
@@ -45,7 +45,7 @@ while [[ $# -gt 0 ]]; do
       echo "Usage: $0 [options] <branch-name>"
       echo ""
       echo "Options:"
-      echo "  --layout sibling|nested   Worktree location strategy (default: sibling)"
+      echo "  --layout nested|sibling   Worktree location strategy (default: nested)"
       echo "  --path <dir>              Explicit worktree path (overrides layout)"
       echo "  --in-place                Skip worktree creation (no-op exit 0)"
       echo "  --json                    Output JSON instead of key=value"
@@ -101,18 +101,51 @@ load_config_value() {
 }
 
 make_relative_path() {
-  local from_dir="$1"
-  local to_target="$2"
-  if command -v python3 >/dev/null 2>&1; then
-    python3 -c "import os.path, sys; print(os.path.relpath(sys.argv[2], sys.argv[1]).replace('\\\\', '/'))" "$from_dir" "$to_target"
-  elif command -v python >/dev/null 2>&1; then
-    python -c "import os.path, sys; print(os.path.relpath(sys.argv[2], sys.argv[1]).replace('\\\\', '/'))" "$from_dir" "$to_target"
-  elif command -v realpath >/dev/null 2>&1; then
-    realpath --relative-to="$from_dir" "$to_target" 2>/dev/null || echo "$to_target"
+  local from="$1"
+  local to="$2"
+
+  # Normalize backslashes to forward slashes
+  from="${from//\\//}"
+  to="${to//\\//}"
+
+  # Normalize MSYS /c/ style to C:/ for consistent prefix matching
+  if [[ "$from" =~ ^/([a-zA-Z])/(.*) ]]; then
+    from="${BASH_REMATCH[1]^^}:/${BASH_REMATCH[2]}"
+  elif [[ "$from" =~ ^/([a-zA-Z])$ ]]; then
+    from="${BASH_REMATCH[1]^^}:/"
+  fi
+  if [[ "$to" =~ ^/([a-zA-Z])/(.*) ]]; then
+    to="${BASH_REMATCH[1]^^}:/${BASH_REMATCH[2]}"
+  elif [[ "$to" =~ ^/([a-zA-Z])$ ]]; then
+    to="${BASH_REMATCH[1]^^}:/"
+  fi
+
+  # Strip trailing slashes
+  from="${from%/}"
+  to="${to%/}"
+
+  local common="$from"
+  local rel=""
+
+  while [[ "${to#"$common"}" == "$to" || ( -n "${to#"$common"}" && "${to#"$common"}" != /* ) ]]; do
+    if [[ "$common" == "/" || "$common" =~ ^[a-zA-Z]:/?$ || "$common" == "." || -z "$common" ]]; then
+      echo "$to"
+      return
+    fi
+    common="$(dirname "$common")"
+    rel="../$rel"
+  done
+
+  local right="${to#"$common"}"
+  right="${right#/}"
+
+  if [[ -n "$rel$right" ]]; then
+    echo "${rel}${right}"
   else
-    echo "$to_target"
+    echo "."
   fi
 }
+
 
 if [[ "$IN_PLACE" == true ]]; then
   # --in-place: no worktree, just report and exit
