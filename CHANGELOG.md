@@ -1,9 +1,12 @@
 # Changelog
 
-## 1.3.3 (2026-08-13)
+## 1.3.3 (2026-08-16)
 
 ### Fixed
 - Normalize worktree `gitdir` pointers to portable relative paths for cross-platform compatibility across Windows, WSL, and POSIX systems without Python dependencies
+- Guard WSL `/mnt/` path normalization with `is_wsl` runtime environment detection, preserving POSIX paths on standard Linux
+- Strip Windows CRLF line endings and quotes when parsing `worktree-config.yml`
+- Normalize worktree output paths to Windows drive format under WSL for IDE and CLI interoperability
 
 ## 1.3.2 (2026-04-15)
 

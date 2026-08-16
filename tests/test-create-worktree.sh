@@ -220,6 +220,22 @@ output=$(bash "$CREATE_SCRIPT" --json --dry-run --repo-root "$TEMP_DIR" feature/
 assert_contains "slashes replaced" 'feature-user-auth' "$output"
 cleanup; trap - EXIT
 
+# Test 13: config with CRLF line endings and quotes parsed cleanly
+echo "[13] config with CRLF line endings and quotes parsed cleanly"
+TEMP_DIR=$(setup_temp_repo)
+trap cleanup EXIT
+mkdir -p "$TEMP_DIR/.specify/extensions/worktrees"
+printf 'layout: "sibling"\r\nsibling_pattern: "{{repo}}--{{branch}}"\r\n' > "$TEMP_DIR/.specify/extensions/worktrees/worktree-config.yml"
+output=$(bash "$CREATE_SCRIPT" --json --dry-run --repo-root "$TEMP_DIR" 005-crlf-test)
+assert_contains "CRLF config parsed layout" '"layout":"sibling"' "$output"
+cleanup; trap - EXIT
+
+# Test 14: WSL /mnt/ path normalized in output
+echo "[14] WSL /mnt/ path normalized in output"
+output=$(bash "$CREATE_SCRIPT" --json --dry-run --repo-root "/mnt/c/fake/repo" 005-wsl-test)
+assert_contains "WSL path converted to drive path" '"path":"C:/fake/repo/' "$output"
+
+
 # --- summary ---
 echo ""
 echo "=== Results: $PASS/$TOTAL passed, $FAIL failed ==="

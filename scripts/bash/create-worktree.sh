@@ -94,10 +94,20 @@ load_config_value() {
   fi
   if [[ -n "$file" ]] && [[ -f "$file" ]]; then
     local val
-    val=$(grep -E "^${key}:" "$file" 2>/dev/null | head -1 | sed 's/^[^:]*: *//; s/ *#.*//; s/^"//; s/"$//' || true)
+    val=$(grep -E "^${key}:" "$file" 2>/dev/null | head -1 | tr -d '\r' | sed "s/^[^:]*: *//; s/ *#.*//; s/^[\"']//; s/[\"']$//" || true)
     if [[ -n "$val" ]]; then echo "$val"; return; fi
   fi
   echo "$default"
+}
+
+is_wsl() {
+  if [[ -n "${WSL_DISTRO_NAME:-}" ]] || [[ -n "${WSL_INTEROP:-}" ]]; then
+    return 0
+  fi
+  if [[ -f /proc/version ]] && grep -qiE "microsoft|wsl" /proc/version 2>/dev/null; then
+    return 0
+  fi
+  return 1
 }
 
 make_relative_path() {
@@ -108,12 +118,27 @@ make_relative_path() {
   from="${from//\\//}"
   to="${to//\\//}"
 
+  # Normalize WSL /mnt/c/ to C:/ only when operating in WSL
+  if is_wsl; then
+    if [[ "$from" =~ ^/mnt/([a-zA-Z])/(.*) ]]; then
+      from="${BASH_REMATCH[1]^^}:/${BASH_REMATCH[2]}"
+    elif [[ "$from" =~ ^/mnt/([a-zA-Z])$ ]]; then
+      from="${BASH_REMATCH[1]^^}:/"
+    fi
+    if [[ "$to" =~ ^/mnt/([a-zA-Z])/(.*) ]]; then
+      to="${BASH_REMATCH[1]^^}:/${BASH_REMATCH[2]}"
+    elif [[ "$to" =~ ^/mnt/([a-zA-Z])$ ]]; then
+      to="${BASH_REMATCH[1]^^}:/"
+    fi
+  fi
+
   # Normalize MSYS /c/ style to C:/ for consistent prefix matching
   if [[ "$from" =~ ^/([a-zA-Z])/(.*) ]]; then
     from="${BASH_REMATCH[1]^^}:/${BASH_REMATCH[2]}"
   elif [[ "$from" =~ ^/([a-zA-Z])$ ]]; then
     from="${BASH_REMATCH[1]^^}:/"
   fi
+
   if [[ "$to" =~ ^/([a-zA-Z])/(.*) ]]; then
     to="${BASH_REMATCH[1]^^}:/${BASH_REMATCH[2]}"
   elif [[ "$to" =~ ^/([a-zA-Z])$ ]]; then
@@ -221,15 +246,28 @@ resolve_base_ref() {
   fi
 }
 
+normalize_output_path() {
+  local p="$1"
+  p="${p//\\//}"
+  if is_wsl && [[ "$p" =~ ^/mnt/([a-zA-Z])/(.*) ]]; then
+    echo "${BASH_REMATCH[1]^^}:/${BASH_REMATCH[2]}"
+  elif [[ "$p" =~ ^/([a-zA-Z])/(.*) ]]; then
+    echo "${BASH_REMATCH[1]^^}:/${BASH_REMATCH[2]}"
+  else
+    echo "$p"
+  fi
+}
+
 # --- dry-run ---
 if [[ "$DRY_RUN" == true ]]; then
+  OUT_PATH=$(normalize_output_path "$WT_TARGET")
   if $JSON_MODE; then
     printf '{"branch":"%s","worktree":true,"path":"%s","layout":"%s","dry_run":true}\n' \
-      "$BRANCH_NAME" "$WT_TARGET" "$LAYOUT"
+      "$BRANCH_NAME" "$OUT_PATH" "$LAYOUT"
   else
     echo "WORKTREE=true"
     echo "BRANCH=$BRANCH_NAME"
-    echo "PATH=$WT_TARGET"
+    echo "PATH=$OUT_PATH"
     echo "LAYOUT=$LAYOUT"
     echo "DRY_RUN=true"
   fi
@@ -289,12 +327,13 @@ if [[ -f "$WT_TARGET/.git" ]]; then
 fi
 
 # --- output ---
+FINAL_OUT_PATH=$(normalize_output_path "$WT_TARGET")
 if $JSON_MODE; then
   printf '{"branch":"%s","worktree":true,"path":"%s","layout":"%s"}\n' \
-    "$BRANCH_NAME" "$WT_TARGET" "$LAYOUT"
+    "$BRANCH_NAME" "$FINAL_OUT_PATH" "$LAYOUT"
 else
   echo "WORKTREE=true"
   echo "BRANCH=$BRANCH_NAME"
-  echo "PATH=$WT_TARGET"
+  echo "PATH=$FINAL_OUT_PATH"
   echo "LAYOUT=$LAYOUT"
 fi
