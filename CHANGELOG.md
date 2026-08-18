@@ -1,13 +1,12 @@
 # Changelog
 
-## Unreleased
+## 1.4.2 (2026-08-18)
 
 ### Added
-- `/speckit.worktrees.specify` command for a worktree-first specify workflow: create or reuse the feature worktree before writing spec artifacts, then continue the normal Spec Kit flow from the worktree root
-- VS Code handoff guidance for `/speckit.worktrees.specify`: optional `--open-vscode` behavior, configurable `code -n <worktree-path>` new-window default, and explicit reuse/print modes
+- Automatic detection of WSL commands launched from Windows into WSL (via `wsl.exe`, `bash.exe`, or IDE tool runners like Antigravity).
+- Automatic translation of `/mnt/<drive>/...` worktree paths and internal `.git` / `gitdir` pointers into canonical Windows absolute paths (`C:/...`) for Antigravity compatibility.
+- Preservation of native Linux paths (`/home/...`) and interactive WSL user sessions.
 
-### Changed
-- README now documents the recommended response to "pre-hook for specify": use an explicit worktree-first command unless Spec Kit itself can also switch the active project root for the rest of `/speckit.specify`
 
 ## 1.3.2 (2026-04-15)
 
