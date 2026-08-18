@@ -202,12 +202,12 @@ assert_exit "second create fails" 1 bash "$CREATE_SCRIPT" --json --repo-root "$T
 git -C "$TEMP_DIR" worktree remove "$TEMP_DIR/.worktrees/005-dup-test" 2>/dev/null || true
 cleanup; trap - EXIT
 
-# Test 11: config file overrides default layout
-echo "[11] config file overrides default layout"
+# Test 11: config file overrides default layout (including CRLF and quotes)
+echo "[11] config file overrides default layout (including CRLF and quotes)"
 TEMP_DIR=$(setup_temp_repo)
 trap cleanup EXIT
 mkdir -p "$TEMP_DIR/.specify/extensions/worktrees"
-echo 'layout: "sibling"' > "$TEMP_DIR/.specify/extensions/worktrees/worktree-config.yml"
+printf 'layout: "sibling"\r\nrelative_paths: "auto"\r\n' > "$TEMP_DIR/.specify/extensions/worktrees/worktree-config.yml"
 output=$(bash "$CREATE_SCRIPT" --json --dry-run --repo-root "$TEMP_DIR" 005-config-test)
 assert_contains "config overrides to sibling" '"layout":"sibling"' "$output"
 cleanup; trap - EXIT

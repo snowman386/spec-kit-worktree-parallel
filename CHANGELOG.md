@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.1 (2026-08-18)
+
+### Fixed
+- Fixed config parsing error (`unknown layout 'sibling"'`) caused by CRLF (`\r\n`) line endings on Windows.
+- Avoided unnecessary WSL startup and warning messages when running in Git Bash by prioritizing native `cygpath`.
+
 ## 1.4.0 (2026-08-18)
 
 ### Added

@@ -103,7 +103,7 @@ load_config_value() {
   fi
   if [[ -n "$file" ]] && [[ -f "$file" ]]; then
     local val
-    val=$(grep -E "^${key}:" "$file" 2>/dev/null | head -1 | sed 's/^[^:]*: *//; s/ *#.*//; s/^"//; s/"$//' || true)
+    val=$(grep -E "^${key}:" "$file" 2>/dev/null | head -1 | tr -d '\r' | sed -e 's/^[^:]*:[[:space:]]*//' -e 's/[[:space:]]*#.*//' -e 's/^["'"'"']//' -e 's/["'"'"']$//' -e 's/^[[:space:]]*//;s/[[:space:]]*$//' || true)
     if [[ -n "$val" ]]; then echo "$val"; return; fi
   fi
   echo "$default"
@@ -285,7 +285,12 @@ make_worktree_relative() {
 
 resolve_windows_path() {
   local posix_path="$1"
-  if command -v wslpath >/dev/null 2>&1; then
+  if is_git_bash && command -v cygpath >/dev/null 2>&1; then
+    local win_p
+    win_p="$(cygpath -w "$posix_path" 2>/dev/null || true)"
+    if [[ -n "$win_p" ]]; then echo "$win_p"; return; fi
+  fi
+  if is_wsl && command -v wslpath >/dev/null 2>&1; then
     local win_p
     win_p="$(wslpath -w "$posix_path" 2>/dev/null || true)"
     if [[ -n "$win_p" ]]; then echo "$win_p"; return; fi
@@ -293,6 +298,11 @@ resolve_windows_path() {
   if command -v cygpath >/dev/null 2>&1; then
     local win_p
     win_p="$(cygpath -w "$posix_path" 2>/dev/null || true)"
+    if [[ -n "$win_p" ]]; then echo "$win_p"; return; fi
+  fi
+  if command -v wslpath >/dev/null 2>&1; then
+    local win_p
+    win_p="$(wslpath -w "$posix_path" 2>/dev/null || true)"
     if [[ -n "$win_p" ]]; then echo "$win_p"; return; fi
   fi
   # POSIX drive mapping fallback (/mnt/c/... or /c/...)
