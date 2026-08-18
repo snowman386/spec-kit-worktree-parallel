@@ -34,6 +34,7 @@ Read configuration from `.specify/extensions/worktrees/worktree-config.yml` if i
 | `auto_create` | `true` | When `true`, the `after_specify` hook creates a worktree without prompting |
 | `sibling_pattern` | `{{repo}}--{{branch}}` | Name pattern for sibling directories |
 | `dotworktrees_dir` | `.worktrees` | Subdirectory name for nested layout |
+| `relative_paths` | `auto` | `auto` — auto-enable relative paths on Windows/WSL/Git Bash, `true` — always, `false` — disable |
 
 Environment variable `SPECIFY_WORKTREE_PATH` overrides the computed path entirely.
 
@@ -52,6 +53,7 @@ Environment variable `SPECIFY_WORKTREE_PATH` overrides the computed path entirel
    bash "$(dirname "$0")/../scripts/bash/create-worktree.sh" \
      --json \
      [--layout sibling|nested] \
+     [--relative-paths|--no-relative-paths] \
      [--base-ref HEAD|main|origin/main|…] \
      [--path <override>] \
      [--in-place] \
@@ -65,9 +67,15 @@ Environment variable `SPECIFY_WORKTREE_PATH` overrides the computed path entirel
    {"branch":"005-user-auth","worktree":true,"path":"/Users/me/code/MyProject--005-user-auth","layout":"sibling"}
    ```
 
+   On Windows/WSL environments, the output also includes `windows_path` when convertible:
+
+   ```json
+   {"branch":"005-user-auth","worktree":true,"path":"/mnt/c/code/MyProject--005-user-auth","windows_path":"C:\\code\\MyProject--005-user-auth","layout":"sibling"}
+   ```
+
    If the script is unavailable (e.g., non-bash environment), perform the equivalent operations directly:
    - Resolve the worktree path based on layout config
-   - Run `git worktree add -b <branch> <path> <base-ref>` (new branch) or `git worktree add <path> <branch>` (existing branch)
+   - Run `git worktree add -b <branch> <path> <base-ref>` (new branch) or `git worktree add <path> <branch>` (existing branch) (add `--relative-paths` on Windows/WSL if supported)
    - For nested layout, ensure `.worktrees/` is in `.gitignore`
 
 3. **Verify spec artifacts**: Prefer `specs/<branch>/` **in the worktree** when using a worktree-first workflow. If `/speckit.specify` ran on the primary checkout first (`after_specify` hook order), artifacts may still be under the primary tree — report where they actually are.

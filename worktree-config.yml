@@ -17,6 +17,12 @@ sibling_pattern: "{{repo}}--{{branch}}"
 # Directory name for nested layout (relative to repo root, auto-gitignored).
 dotworktrees_dir: ".worktrees"
 
+# Relative paths for worktree pointers (.git file and gitdir).
+#   auto  — automatically use relative paths on Windows/WSL/Git Bash, absolute on Linux/macOS (recommended)
+#   true  — always use relative paths across all platforms
+#   false — always use absolute paths
+relative_paths: "auto"
+
 # VS Code handoff for /speckit.worktrees.specify.
 #   false         — print the worktree path and let the user open it manually
 #   true          — open the worktree after creation when the VS Code CLI is available

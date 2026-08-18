@@ -220,6 +220,240 @@ output=$(bash "$CREATE_SCRIPT" --json --dry-run --repo-root "$TEMP_DIR" feature/
 assert_contains "slashes replaced" 'feature-user-auth' "$output"
 cleanup; trap - EXIT
 
+# Test 13: nested layout with --relative-paths (git native)
+echo "[13] nested layout with --relative-paths"
+TEMP_DIR=$(setup_temp_repo)
+trap cleanup EXIT
+output=$(bash "$CREATE_SCRIPT" --json --relative-paths --repo-root "$TEMP_DIR" 013-rel-nested 2>/dev/null)
+assert_contains "worktree is true" '"worktree":true' "$output"
+wt_path="$TEMP_DIR/.worktrees/013-rel-nested"
+git_line=$(head -1 "$wt_path/.git" 2>/dev/null || true)
+assert_contains "nested .git has relative gitdir" "gitdir: ../" "$git_line"
+git -C "$TEMP_DIR" worktree remove "$wt_path" 2>/dev/null || true
+cleanup; trap - EXIT
+
+# Test 14: sibling layout with --relative-paths (git native)
+echo "[14] sibling layout with --relative-paths"
+TEMP_DIR=$(setup_temp_repo)
+trap cleanup EXIT
+output=$(bash "$CREATE_SCRIPT" --json --layout sibling --relative-paths --repo-root "$TEMP_DIR" 014-rel-sibling 2>/dev/null)
+assert_contains "worktree is true" '"worktree":true' "$output"
+base=$(basename "$TEMP_DIR")
+sibling_path="$(dirname "$TEMP_DIR")/${base}--014-rel-sibling"
+git_line=$(head -1 "$sibling_path/.git" 2>/dev/null || true)
+assert_contains "sibling .git has relative gitdir" "gitdir: ../" "$git_line"
+git -C "$TEMP_DIR" worktree remove "$sibling_path" 2>/dev/null || true
+cleanup; trap - EXIT
+
+# Test 15: nested layout fallback relative path rewriting (mocking no native support)
+echo "[15] nested layout fallback relative path rewriting"
+TEMP_DIR=$(setup_temp_repo)
+trap cleanup EXIT
+output=$(SPECIFY_FORCE_GIT_RELATIVE_SUPPORT=false bash "$CREATE_SCRIPT" --json --relative-paths --repo-root "$TEMP_DIR" 015-fallback-nested 2>/dev/null)
+assert_contains "worktree is true" '"worktree":true' "$output"
+wt_path="$TEMP_DIR/.worktrees/015-fallback-nested"
+git_line=$(head -1 "$wt_path/.git" 2>/dev/null || true)
+assert_contains "nested .git rewritten to relative gitdir" "gitdir: ../" "$git_line"
+repo_gitdir_line=$(cat "$TEMP_DIR/.git/worktrees/015-fallback-nested/gitdir" 2>/dev/null || true)
+assert_contains "repo gitdir rewritten to relative" "../" "$repo_gitdir_line"
+branch=$(git -C "$wt_path" branch --show-current 2>/dev/null)
+assert_eq "fallback nested worktree works with git" "015-fallback-nested" "$branch"
+git -C "$TEMP_DIR" worktree remove "$wt_path" 2>/dev/null || true
+cleanup; trap - EXIT
+
+# Test 16: sibling layout fallback relative path rewriting (mocking no native support)
+echo "[16] sibling layout fallback relative path rewriting"
+TEMP_DIR=$(setup_temp_repo)
+trap cleanup EXIT
+output=$(SPECIFY_FORCE_GIT_RELATIVE_SUPPORT=false bash "$CREATE_SCRIPT" --json --layout sibling --relative-paths --repo-root "$TEMP_DIR" 016-fallback-sibling 2>/dev/null)
+assert_contains "worktree is true" '"worktree":true' "$output"
+base=$(basename "$TEMP_DIR")
+sibling_path="$(dirname "$TEMP_DIR")/${base}--016-fallback-sibling"
+git_line=$(head -1 "$sibling_path/.git" 2>/dev/null || true)
+assert_contains "sibling .git rewritten to relative gitdir" "gitdir: ../" "$git_line"
+repo_gitdir_line=$(cat "$TEMP_DIR/.git/worktrees/${base}--016-fallback-sibling/gitdir" 2>/dev/null || true)
+assert_contains "repo gitdir rewritten to relative" "../" "$repo_gitdir_line"
+branch=$(git -C "$sibling_path" branch --show-current 2>/dev/null)
+assert_eq "fallback sibling worktree works with git" "016-fallback-sibling" "$branch"
+git -C "$TEMP_DIR" worktree remove "$sibling_path" 2>/dev/null || true
+cleanup; trap - EXIT
+
+# Test 17: config relative_paths: "true" for nested and sibling
+echo "[17] config relative_paths: 'true' for nested and sibling"
+TEMP_DIR=$(setup_temp_repo)
+trap cleanup EXIT
+mkdir -p "$TEMP_DIR/.specify/extensions/worktrees"
+echo 'relative_paths: "true"' > "$TEMP_DIR/.specify/extensions/worktrees/worktree-config.yml"
+# nested with config
+output_nested=$(SPECIFY_FORCE_GIT_RELATIVE_SUPPORT=false bash "$CREATE_SCRIPT" --json --repo-root "$TEMP_DIR" 017-cfg-nested 2>/dev/null)
+assert_contains "nested worktree true" '"worktree":true' "$output_nested"
+wt_path="$TEMP_DIR/.worktrees/017-cfg-nested"
+git_line=$(head -1 "$wt_path/.git" 2>/dev/null || true)
+assert_contains "nested .git relative from config" "gitdir: ../" "$git_line"
+git -C "$TEMP_DIR" worktree remove "$wt_path" 2>/dev/null || true
+# sibling with config
+output_sib=$(SPECIFY_FORCE_GIT_RELATIVE_SUPPORT=false bash "$CREATE_SCRIPT" --json --layout sibling --repo-root "$TEMP_DIR" 017-cfg-sibling 2>/dev/null)
+assert_contains "sibling worktree true" '"worktree":true' "$output_sib"
+base=$(basename "$TEMP_DIR")
+sibling_path="$(dirname "$TEMP_DIR")/${base}--017-cfg-sibling"
+git_line=$(head -1 "$sibling_path/.git" 2>/dev/null || true)
+assert_contains "sibling .git relative from config" "gitdir: ../" "$git_line"
+git -C "$TEMP_DIR" worktree remove "$sibling_path" 2>/dev/null || true
+cleanup; trap - EXIT
+
+# Test 18: force --no-relative-paths produces absolute path in .git
+echo "[18] force --no-relative-paths for nested and sibling"
+TEMP_DIR=$(setup_temp_repo)
+trap cleanup EXIT
+output_nested=$(bash "$CREATE_SCRIPT" --json --no-relative-paths --repo-root "$TEMP_DIR" 018-no-rel-nested 2>/dev/null)
+assert_contains "nested worktree true" '"worktree":true' "$output_nested"
+wt_path="$TEMP_DIR/.worktrees/018-no-rel-nested"
+git_line=$(head -1 "$wt_path/.git" 2>/dev/null || true)
+TOTAL=$((TOTAL + 1))
+if echo "$git_line" | grep -q "gitdir: \.\./"; then
+  FAIL=$((FAIL + 1))
+  echo "  FAIL: nested .git unexpectedly has relative path: $git_line"
+else
+  PASS=$((PASS + 1))
+  echo "  PASS: nested .git has absolute path"
+fi
+git -C "$TEMP_DIR" worktree remove "$wt_path" 2>/dev/null || true
+# sibling
+output_sib=$(bash "$CREATE_SCRIPT" --json --layout sibling --no-relative-paths --repo-root "$TEMP_DIR" 018-no-rel-sibling 2>/dev/null)
+assert_contains "sibling worktree true" '"worktree":true' "$output_sib"
+base=$(basename "$TEMP_DIR")
+sibling_path="$(dirname "$TEMP_DIR")/${base}--018-no-rel-sibling"
+git_line=$(head -1 "$sibling_path/.git" 2>/dev/null || true)
+TOTAL=$((TOTAL + 1))
+if echo "$git_line" | grep -q "gitdir: \.\./"; then
+  FAIL=$((FAIL + 1))
+  echo "  FAIL: sibling .git unexpectedly has relative path: $git_line"
+else
+  PASS=$((PASS + 1))
+  echo "  PASS: sibling .git has absolute path"
+fi
+git -C "$TEMP_DIR" worktree remove "$sibling_path" 2>/dev/null || true
+cleanup; trap - EXIT
+
+# Test 19: simulated non-windows environment with relative_paths: auto
+echo "[19] simulated non-windows environment with relative_paths: auto retains absolute paths"
+TEMP_DIR=$(setup_temp_repo)
+trap cleanup EXIT
+output=$(SPECIFY_FORCE_WSL=false SPECIFY_FORCE_GIT_BASH=false bash "$CREATE_SCRIPT" --json --repo-root "$TEMP_DIR" 019-non-win 2>/dev/null)
+assert_contains "worktree true" '"worktree":true' "$output"
+wt_path="$TEMP_DIR/.worktrees/019-non-win"
+git_line=$(head -1 "$wt_path/.git" 2>/dev/null || true)
+TOTAL=$((TOTAL + 1))
+if echo "$git_line" | grep -q "gitdir: \.\./"; then
+  FAIL=$((FAIL + 1))
+  echo "  FAIL: non-windows environment unexpectedly used relative path: $git_line"
+else
+  PASS=$((PASS + 1))
+  echo "  PASS: non-windows environment kept absolute path"
+fi
+git -C "$TEMP_DIR" worktree remove "$wt_path" 2>/dev/null || true
+cleanup; trap - EXIT
+
+# Test 20: simulated WSL environment auto-enables relative paths for nested and sibling
+echo "[20] simulated WSL environment auto-enables relative paths for nested and sibling"
+TEMP_DIR=$(setup_temp_repo)
+trap cleanup EXIT
+output_nested=$(SPECIFY_FORCE_WSL=true SPECIFY_FORCE_GIT_RELATIVE_SUPPORT=false bash "$CREATE_SCRIPT" --json --repo-root "$TEMP_DIR" 020-wsl-nested 2>/dev/null)
+assert_contains "nested worktree true" '"worktree":true' "$output_nested"
+assert_contains "windows_path in json" '"windows_path":' "$output_nested"
+wt_path="$TEMP_DIR/.worktrees/020-wsl-nested"
+git_line=$(head -1 "$wt_path/.git" 2>/dev/null || true)
+assert_contains "wsl nested .git is relative" "gitdir: ../" "$git_line"
+git -C "$TEMP_DIR" worktree remove "$wt_path" 2>/dev/null || true
+
+output_sib=$(SPECIFY_FORCE_WSL=true SPECIFY_FORCE_GIT_RELATIVE_SUPPORT=false bash "$CREATE_SCRIPT" --json --layout sibling --repo-root "$TEMP_DIR" 020-wsl-sibling 2>/dev/null)
+assert_contains "sibling worktree true" '"worktree":true' "$output_sib"
+assert_contains "windows_path in json" '"windows_path":' "$output_sib"
+base=$(basename "$TEMP_DIR")
+sibling_path="$(dirname "$TEMP_DIR")/${base}--020-wsl-sibling"
+git_line=$(head -1 "$sibling_path/.git" 2>/dev/null || true)
+assert_contains "wsl sibling .git is relative" "gitdir: ../" "$git_line"
+git -C "$TEMP_DIR" worktree remove "$sibling_path" 2>/dev/null || true
+cleanup; trap - EXIT
+
+# Test 21: functional git operations on Windows worktree path (nested and sibling)
+echo "[21] functional git operations on Windows worktree path (nested and sibling)"
+is_windows_host() {
+  if command -v git.exe >/dev/null 2>&1 || command -v cmd.exe >/dev/null 2>&1 || command -v wslpath >/dev/null 2>&1 || command -v cygpath >/dev/null 2>&1; then
+    return 0
+  fi
+  local os
+  os="$(uname -s 2>/dev/null || echo "${OSTYPE:-}")"
+  case "$os" in
+    MINGW*|MSYS*|CYGWIN*|msys*|cygwin*)
+      return 0
+      ;;
+  esac
+  if [[ -f /proc/version ]] && grep -qiE '(microsoft|wsl)' /proc/version 2>/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
+if is_windows_host; then
+  TEMP_DIR=$(setup_temp_repo)
+  trap cleanup EXIT
+
+  # 21a: Nested layout
+  output_nested=$(bash "$CREATE_SCRIPT" --json --repo-root "$TEMP_DIR" 021-win-nested 2>/dev/null)
+  assert_contains "nested worktree created" '"worktree":true' "$output_nested"
+  wt_path="$TEMP_DIR/.worktrees/021-win-nested"
+
+  # Git operations in worktree
+  echo "content in nested" > "$wt_path/nested-file.txt"
+  git -C "$wt_path" add nested-file.txt
+  git -C "$wt_path" commit -m "commit from nested worktree" >/dev/null 2>&1
+  assert_contains "commit recorded in nested log" "commit from nested worktree" "$(git -C "$wt_path" log -1 --pretty=%B)"
+  assert_eq "nested worktree clean" "" "$(git -C "$wt_path" status --porcelain)"
+
+  # Git operations via native Windows git if running in Windows environment
+  if command -v git.exe >/dev/null 2>&1; then
+    win_path=$(python3 -c "import json, sys; print(json.loads(sys.argv[1]).get('windows_path', ''))" "$output_nested")
+    if [[ -n "$win_path" ]]; then
+      win_status=$(git.exe -C "$win_path" status --porcelain 2>/dev/null || true)
+      assert_eq "windows native git status clean" "" "$win_status"
+      git.exe -C "$win_path" commit --allow-empty -m "windows native commit nested" >/dev/null 2>&1
+      win_log=$(git.exe -C "$win_path" log -1 --pretty=%B 2>/dev/null || true)
+      assert_contains "windows native commit in log" "windows native commit nested" "$win_log"
+    fi
+  fi
+  git -C "$TEMP_DIR" worktree remove "$wt_path" 2>/dev/null || true
+
+  # 21b: Sibling layout
+  output_sib=$(bash "$CREATE_SCRIPT" --json --layout sibling --repo-root "$TEMP_DIR" 021-win-sibling 2>/dev/null)
+  assert_contains "sibling worktree created" '"worktree":true' "$output_sib"
+  base=$(basename "$TEMP_DIR")
+  sibling_path="$(dirname "$TEMP_DIR")/${base}--021-win-sibling"
+
+  # Git operations in worktree
+  echo "content in sibling" > "$sibling_path/sibling-file.txt"
+  git -C "$sibling_path" add sibling-file.txt
+  git -C "$sibling_path" commit -m "commit from sibling worktree" >/dev/null 2>&1
+  assert_contains "commit recorded in sibling log" "commit from sibling worktree" "$(git -C "$sibling_path" log -1 --pretty=%B)"
+  assert_eq "sibling worktree clean" "" "$(git -C "$sibling_path" status --porcelain)"
+
+  # Git operations via native Windows git if running in Windows environment
+  if command -v git.exe >/dev/null 2>&1; then
+    win_path_sib=$(python3 -c "import json, sys; print(json.loads(sys.argv[1]).get('windows_path', ''))" "$output_sib")
+    if [[ -n "$win_path_sib" ]]; then
+      win_status_sib=$(git.exe -C "$win_path_sib" status --porcelain 2>/dev/null || true)
+      assert_eq "windows native sibling git status clean" "" "$win_status_sib"
+      git.exe -C "$win_path_sib" commit --allow-empty -m "windows native commit sibling" >/dev/null 2>&1
+      win_log_sib=$(git.exe -C "$win_path_sib" log -1 --pretty=%B 2>/dev/null || true)
+      assert_contains "windows native sibling commit in log" "windows native commit sibling" "$win_log_sib"
+    fi
+  fi
+  git -C "$TEMP_DIR" worktree remove "$sibling_path" 2>/dev/null || true
+  cleanup; trap - EXIT
+else
+  echo "  SKIP: not running on Windows host (skipped on Linux/macOS)"
+fi
+
 # --- summary ---
 echo ""
 echo "=== Results: $PASS/$TOTAL passed, $FAIL failed ==="
@@ -227,3 +461,4 @@ echo "=== Results: $PASS/$TOTAL passed, $FAIL failed ==="
 if [[ "$FAIL" -gt 0 ]]; then
   exit 1
 fi
+

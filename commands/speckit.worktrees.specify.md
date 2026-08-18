@@ -15,7 +15,7 @@ $ARGUMENTS
 You **MUST** consider the user input before proceeding. The user input should include:
 - A feature branch name or slug (for example `005-user-auth`)
 - The feature description to specify
-- Optional worktree flags accepted by `/speckit.worktrees.create`, such as `--layout sibling`, `--path <dir>`, or `--base-ref HEAD`
+- Optional worktree flags accepted by `/speckit.worktrees.create`, such as `--layout sibling`, `--relative-paths`, `--no-relative-paths`, `--path <dir>`, or `--base-ref HEAD`
 - Optional IDE handoff flags: `--open-vscode`, `--no-open-vscode`, `--vscode-new-window`, `--vscode-reuse-window`, or `--vscode-print-command`
 
 If the branch name is missing, ask for it before creating anything. If the feature description is missing, create the worktree only after the user confirms they want to continue specifying in that worktree.
@@ -35,6 +35,7 @@ Read configuration from `.specify/extensions/worktrees/worktree-config.yml` if i
 | `vscode_open_after_create` | `false` | Open the returned worktree with the VS Code CLI after creation |
 | `vscode_open_mode` | `new-window` | `new-window`, `reuse-window`, or `print-command` |
 | `vscode_command` | `code` | VS Code CLI command to run |
+| `relative_paths` | `auto` | `auto` — relative paths on Windows/WSL/Git Bash, `true` — always, `false` — disable |
 
 User flags override configuration for the current command:
 
@@ -61,6 +62,7 @@ User flags override configuration for the current command:
    bash "$(dirname "$0")/../scripts/bash/create-worktree.sh" \
      --json \
      [--layout sibling|nested] \
+     [--relative-paths|--no-relative-paths] \
      [--base-ref HEAD|main|origin/main|...] \
      [--path <override>] \
      "$BRANCH_NAME"

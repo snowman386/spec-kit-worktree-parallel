@@ -114,11 +114,28 @@ auto_create: true           # Cursor + /worktree users: set false to avoid in-re
 sibling_pattern: "{{repo}}--{{branch}}"
 dotworktrees_dir: ".worktrees"
 
+# Relative paths for worktrees (Windows / WSL / Git Bash compatibility)
+# auto  — automatically use relative paths on Windows/WSL/Git Bash, absolute on Linux/macOS
+# true  — always use relative paths across all platforms
+# false — always use absolute paths
+relative_paths: "auto"
+
 # Optional VS Code handoff for /speckit.worktrees.specify
 vscode_open_after_create: false
 vscode_open_mode: "new-window"   # new-window | reuse-window | print-command
 vscode_command: "code"
 ```
+
+## Windows, WSL, and Git Bash Support
+
+On Windows, bash scripts typically run inside WSL, Git Bash (MSYS2), or Cygwin. In these environments, default absolute worktree paths (such as `/mnt/c/...` or `C:/...`) can cause interoperability issues between Windows IDEs and Linux tooling.
+
+This extension automatically handles this:
+- **Auto-detection**: Automatically detects WSL and Git Bash environments (`relative_paths: "auto"`).
+- **Native Relative Paths**: Passes `--relative-paths` to `git worktree add` when supported by Git (>= 2.42).
+- **Portable Fallback**: For older Git versions lacking `--relative-paths`, automatically recalculates and rewrites `.git` and `gitdir` pointer files using relative paths for both nested and sibling layouts.
+- **Cross-platform**: Linux and macOS continue using standard paths by default unless explicitly configured.
+- **Windows Path Output**: JSON output includes `windows_path` when running in Windows/WSL environments.
 
 ## How worktrees stay isolated
 

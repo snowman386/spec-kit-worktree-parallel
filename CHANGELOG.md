@@ -1,13 +1,15 @@
 # Changelog
 
-## Unreleased
+## 1.4.0 (2026-08-18)
 
 ### Added
-- `/speckit.worktrees.specify` command for a worktree-first specify workflow: create or reuse the feature worktree before writing spec artifacts, then continue the normal Spec Kit flow from the worktree root
-- VS Code handoff guidance for `/speckit.worktrees.specify`: optional `--open-vscode` behavior, configurable `code -n <worktree-path>` new-window default, and explicit reuse/print modes
-
-### Changed
-- README now documents the recommended response to "pre-hook for specify": use an explicit worktree-first command unless Spec Kit itself can also switch the active project root for the rest of `/speckit.specify`
+- Cross-platform Windows, WSL, and Git Bash support for worktrees using relative paths.
+- Auto-detection of WSL and Git Bash environments to prevent broken absolute `/mnt/...` or Unix paths on Windows.
+- Native Git 2.42+ `--relative-paths` integration with automatic fallback rewriting for older Git versions.
+- CLI flags `--relative-paths` and `--no-relative-paths` on `create-worktree.sh` and `/speckit.worktrees.specify`.
+- Configuration option `relative_paths: "auto"` (`auto`, `true`, `false`) in `worktree-config.yml`.
+- `windows_path` output field in JSON and key-value modes for Windows environments.
+- Comprehensive matrix test suite covering nested/sibling layouts with relative paths across Windows, WSL, Linux, and macOS.
 
 ## 1.3.2 (2026-04-15)
 

@@ -10,6 +10,8 @@
 #   --layout sibling|nested   Override config layout (default: sibling)
 #   --path <dir>              Explicit worktree path (overrides layout)
 #   --in-place                Skip worktree creation; no-op exit 0
+#   --relative-paths          Use relative paths for worktree (default: auto on Windows/WSL)
+#   --no-relative-paths       Do not use relative paths for worktree
 #   --json                    Output JSON instead of key=value
 #   --dry-run                 Compute paths without creating anything
 #   --base-ref <ref>          Base ref for new branch (default: auto-detect)
@@ -29,18 +31,21 @@ BASE_REF=""
 REPO_ROOT=""
 CONFIG_FILE=""
 BRANCH_NAME=""
+RELATIVE_PATHS_OVERRIDE=""
 
 # --- parse args ---
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --layout)      LAYOUT="$2"; shift 2 ;;
-    --path)        WORKTREE_PATH_OVERRIDE="$2"; shift 2 ;;
-    --in-place)    IN_PLACE=true; shift ;;
-    --json)        JSON_MODE=true; shift ;;
-    --dry-run)     DRY_RUN=true; shift ;;
-    --base-ref)    BASE_REF="$2"; shift 2 ;;
-    --repo-root)   REPO_ROOT="$2"; shift 2 ;;
-    --config)      CONFIG_FILE="$2"; shift 2 ;;
+    --layout)             LAYOUT="$2"; shift 2 ;;
+    --path)               WORKTREE_PATH_OVERRIDE="$2"; shift 2 ;;
+    --in-place)           IN_PLACE=true; shift ;;
+    --relative-paths)     RELATIVE_PATHS_OVERRIDE="true"; shift ;;
+    --no-relative-paths)  RELATIVE_PATHS_OVERRIDE="false"; shift ;;
+    --json)               JSON_MODE=true; shift ;;
+    --dry-run)            DRY_RUN=true; shift ;;
+    --base-ref)           BASE_REF="$2"; shift 2 ;;
+    --repo-root)          REPO_ROOT="$2"; shift 2 ;;
+    --config)             CONFIG_FILE="$2"; shift 2 ;;
     --help|-h)
       echo "Usage: $0 [options] <branch-name>"
       echo ""
@@ -48,6 +53,8 @@ while [[ $# -gt 0 ]]; do
       echo "  --layout nested|sibling   Worktree location strategy (default: nested)"
       echo "  --path <dir>              Explicit worktree path (overrides layout)"
       echo "  --in-place                Skip worktree creation (no-op exit 0)"
+      echo "  --relative-paths          Use relative paths for worktree"
+      echo "  --no-relative-paths       Do not use relative paths for worktree"
       echo "  --json                    Output JSON instead of key=value"
       echo "  --dry-run                 Compute paths without creating anything"
       echo "  --base-ref <ref>          Base ref for new branch (default: auto-detect)"
@@ -80,6 +87,8 @@ if [[ -z "$REPO_ROOT" ]]; then
     echo "Error: not inside a git repository" >&2; exit 1
   }
 fi
+REPO_ROOT="${REPO_ROOT//\\//}"
+WORKTREE_PATH_OVERRIDE="${WORKTREE_PATH_OVERRIDE//\\//}"
 
 # --- load config ---
 load_config_value() {
@@ -118,11 +127,190 @@ fi
 AUTO_CREATE=$(load_config_value "auto_create" "true")
 SIBLING_PATTERN=$(load_config_value "sibling_pattern" '{{repo}}--{{branch}}')
 DOTWORKTREES_DIR=$(load_config_value "dotworktrees_dir" ".worktrees")
+RELATIVE_PATHS_CONFIG=$(load_config_value "relative_paths" "auto")
 
 # env override
 if [[ -n "${SPECIFY_WORKTREE_PATH:-}" ]]; then
   WORKTREE_PATH_OVERRIDE="$SPECIFY_WORKTREE_PATH"
+  WORKTREE_PATH_OVERRIDE="${WORKTREE_PATH_OVERRIDE//\\//}"
 fi
+
+# --- environment & relative path detection ---
+is_wsl() {
+  if [[ -n "${SPECIFY_FORCE_WSL:-}" ]]; then
+    [[ "${SPECIFY_FORCE_WSL}" == "true" ]]
+    return
+  fi
+  if [[ -n "${WSL_DISTRO_NAME:-}" ]] || [[ -n "${WSL_INTEROP:-}" ]]; then
+    return 0
+  fi
+  if [[ -f /proc/version ]] && grep -qiE '(microsoft|wsl)' /proc/version 2>/dev/null; then
+    return 0
+  fi
+  if uname -r 2>/dev/null | grep -qiE '(microsoft|wsl)'; then
+    return 0
+  fi
+  return 1
+}
+
+is_git_bash() {
+  if [[ -n "${SPECIFY_FORCE_GIT_BASH:-}" ]]; then
+    [[ "${SPECIFY_FORCE_GIT_BASH}" == "true" ]]
+    return
+  fi
+  local os
+  os="$(uname -s 2>/dev/null || echo "${OSTYPE:-}")"
+  case "$os" in
+    MINGW*|MSYS*|CYGWIN*|msys*|cygwin*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+is_windows_env() {
+  is_wsl || is_git_bash
+}
+
+should_use_relative_paths() {
+  if [[ -n "$RELATIVE_PATHS_OVERRIDE" ]]; then
+    [[ "$RELATIVE_PATHS_OVERRIDE" == "true" ]]
+    return
+  fi
+  case "$RELATIVE_PATHS_CONFIG" in
+    true)  return 0 ;;
+    false) return 1 ;;
+    auto|*)
+      is_windows_env
+      return
+      ;;
+  esac
+}
+
+git_supports_relative_paths() {
+  if [[ -n "${SPECIFY_FORCE_GIT_RELATIVE_SUPPORT:-}" ]]; then
+    [[ "${SPECIFY_FORCE_GIT_RELATIVE_SUPPORT}" == "true" ]]
+    return
+  fi
+  git -C "$REPO_ROOT" worktree add -h 2>&1 | grep -q -- '--relative-paths'
+}
+
+compute_relative_path() {
+  local target="$1"
+  local start="$2"
+
+  if command -v realpath >/dev/null 2>&1; then
+    local r
+    r=$(realpath -m --relative-to="$start" "$target" 2>/dev/null || true)
+    if [[ -n "$r" ]]; then echo "$r"; return; fi
+  fi
+
+  # normalize
+  target="$(echo "$target" | sed 's#//*#/#g; s#/$##')"
+  start="$(echo "$start" | sed 's#//*#/#g; s#/$##')"
+
+  if [[ "$start" == "$target" ]]; then
+    echo "."
+    return
+  fi
+
+  local cur="$start"
+  local up=""
+  while true; do
+    if [[ "$target" == "$cur"/* ]] || [[ "$target" == "$cur" ]]; then
+      local rest="${target#"$cur"}"
+      rest="${rest#/}"
+      if [[ -n "$up" && -n "$rest" ]]; then
+        echo "${up}${rest}"
+      elif [[ -n "$up" ]]; then
+        echo "${up%/}"
+      else
+        echo "$rest"
+      fi
+      return
+    fi
+    if [[ "$cur" == "/" ]] || [[ "$cur" == "." ]] || [[ -z "$cur" ]]; then
+      break
+    fi
+    cur="$(dirname "$cur")"
+    up="../$up"
+  done
+  echo "$target"
+}
+
+make_worktree_relative() {
+  local wt_dir="$1"
+  local wt_git_file="$wt_dir/.git"
+
+  if [[ ! -f "$wt_git_file" ]]; then
+    return 0
+  fi
+
+  local target_gitdir
+  target_gitdir="$(sed -n 's/^gitdir: *//p' "$wt_git_file" | tr -d '\r\n')"
+  if [[ -z "$target_gitdir" ]]; then
+    return 0
+  fi
+
+  # Normalize paths to canonical posix directories
+  local norm_wt_dir norm_target_gitdir
+  norm_wt_dir="$(cd "$wt_dir" 2>/dev/null && pwd)" || norm_wt_dir="$wt_dir"
+  norm_target_gitdir="$(cd "$target_gitdir" 2>/dev/null && pwd)" || norm_target_gitdir="$target_gitdir"
+
+  local rel_to_entry
+  rel_to_entry="$(compute_relative_path "$norm_target_gitdir" "$norm_wt_dir")"
+  echo "gitdir: $rel_to_entry" > "$wt_git_file"
+
+  local entry_gitdir_file="$norm_target_gitdir/gitdir"
+  if [[ -f "$entry_gitdir_file" ]]; then
+    local target_wt
+    target_wt="$(cat "$entry_gitdir_file" | tr -d '\r\n')"
+    if [[ -n "$target_wt" ]]; then
+      local norm_target_wt
+      if [[ -d "$target_wt" ]]; then
+        norm_target_wt="$(cd "$target_wt" 2>/dev/null && pwd)"
+      elif [[ -f "$target_wt" ]]; then
+        norm_target_wt="$(cd "$(dirname "$target_wt")" 2>/dev/null && pwd)/$(basename "$target_wt")"
+      else
+        norm_target_wt="$target_wt"
+      fi
+      local rel_to_wt
+      rel_to_wt="$(compute_relative_path "$norm_target_wt" "$norm_target_gitdir")"
+      echo "$rel_to_wt" > "$entry_gitdir_file"
+    fi
+  fi
+}
+
+resolve_windows_path() {
+  local posix_path="$1"
+  if command -v wslpath >/dev/null 2>&1; then
+    local win_p
+    win_p="$(wslpath -w "$posix_path" 2>/dev/null || true)"
+    if [[ -n "$win_p" ]]; then echo "$win_p"; return; fi
+  fi
+  if command -v cygpath >/dev/null 2>&1; then
+    local win_p
+    win_p="$(cygpath -w "$posix_path" 2>/dev/null || true)"
+    if [[ -n "$win_p" ]]; then echo "$win_p"; return; fi
+  fi
+  # POSIX drive mapping fallback (/mnt/c/... or /c/...)
+  if [[ "$posix_path" =~ ^/mnt/([a-zA-Z])/(.*) ]]; then
+    local drive="${BASH_REMATCH[1]}"
+    local rest="${BASH_REMATCH[2]}"
+    drive="$(echo "$drive" | tr '[:lower:]' '[:upper:]')"
+    echo "${drive}:\\${rest//\//\\}"
+    return
+  elif [[ "$posix_path" =~ ^/([a-zA-Z])/(.*) ]]; then
+    local drive="${BASH_REMATCH[1]}"
+    local rest="${BASH_REMATCH[2]}"
+    drive="$(echo "$drive" | tr '[:lower:]' '[:upper:]')"
+    echo "${drive}:\\${rest//\//\\}"
+    return
+  fi
+  echo "$posix_path"
+}
 
 # --- resolve worktree target path ---
 resolve_worktree_path() {
@@ -162,6 +350,7 @@ resolve_worktree_path() {
 }
 
 WT_TARGET=$(resolve_worktree_path)
+WT_TARGET="${WT_TARGET//\\//}"
 
 # --- resolve base ref ---
 resolve_base_ref() {
@@ -177,12 +366,26 @@ resolve_base_ref() {
 # --- dry-run ---
 if [[ "$DRY_RUN" == true ]]; then
   if $JSON_MODE; then
-    printf '{"branch":"%s","worktree":true,"path":"%s","layout":"%s","dry_run":true}\n' \
-      "$BRANCH_NAME" "$WT_TARGET" "$LAYOUT"
+    win_field=""
+    if is_windows_env; then
+      win_path="$(resolve_windows_path "$WT_TARGET")"
+      if [[ -n "$win_path" ]]; then
+        win_path_escaped="${win_path//\\/\\\\}"
+        win_field=",\"windows_path\":\"${win_path_escaped}\""
+      fi
+    fi
+    printf '{"branch":"%s","worktree":true,"path":"%s"%s,"layout":"%s","dry_run":true}\n' \
+      "$BRANCH_NAME" "$WT_TARGET" "$win_field" "$LAYOUT"
   else
     echo "WORKTREE=true"
     echo "BRANCH=$BRANCH_NAME"
     echo "PATH=$WT_TARGET"
+    if is_windows_env; then
+      win_path="$(resolve_windows_path "$WT_TARGET")"
+      if [[ -n "$win_path" ]]; then
+        echo "WINDOWS_PATH=$win_path"
+      fi
+    fi
     echo "LAYOUT=$LAYOUT"
     echo "DRY_RUN=true"
   fi
@@ -206,31 +409,59 @@ fi
 
 # --- create worktree ---
 RESOLVED_BASE=$(resolve_base_ref)
+WT_ADD_FLAGS=()
+USED_NATIVE_RELATIVE=false
+
+if should_use_relative_paths; then
+  if git_supports_relative_paths; then
+    WT_ADD_FLAGS+=(--relative-paths)
+    USED_NATIVE_RELATIVE=true
+  fi
+fi
 
 if git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
   # Branch exists locally — attach worktree to it
-  if ! git -C "$REPO_ROOT" worktree add "$WT_TARGET" "$BRANCH_NAME" 2>/dev/null; then
+  if ! git -C "$REPO_ROOT" worktree add ${WT_ADD_FLAGS[@]+"${WT_ADD_FLAGS[@]}"} "$WT_TARGET" "$BRANCH_NAME" >&2; then
     echo "Error: git worktree add failed for existing branch '$BRANCH_NAME' at '$WT_TARGET'." >&2
     exit 1
   fi
 else
   # Create new branch + worktree from base ref
-  if ! git -C "$REPO_ROOT" worktree add -b "$BRANCH_NAME" "$WT_TARGET" "$RESOLVED_BASE" 2>/dev/null; then
+  if ! git -C "$REPO_ROOT" worktree add ${WT_ADD_FLAGS[@]+"${WT_ADD_FLAGS[@]}"} -b "$BRANCH_NAME" "$WT_TARGET" "$RESOLVED_BASE" >&2; then
     echo "Error: git worktree add -b '$BRANCH_NAME' at '$WT_TARGET' from '$RESOLVED_BASE' failed." >&2
     echo "Run 'git fetch' or use --in-place if worktrees are not available." >&2
     exit 1
   fi
 fi
 
+# If relative paths requested but git did not support --relative-paths natively, perform fallback rewrite
+if should_use_relative_paths && [[ "$USED_NATIVE_RELATIVE" == false ]]; then
+  make_worktree_relative "$WT_TARGET"
+fi
+
 echo "[worktrees] Created: $WT_TARGET (branch $BRANCH_NAME)" >&2
 
 # --- output ---
 if $JSON_MODE; then
-  printf '{"branch":"%s","worktree":true,"path":"%s","layout":"%s"}\n' \
-    "$BRANCH_NAME" "$WT_TARGET" "$LAYOUT"
+  win_field=""
+  if is_windows_env; then
+    win_path="$(resolve_windows_path "$WT_TARGET")"
+    if [[ -n "$win_path" ]]; then
+      win_path_escaped="${win_path//\\/\\\\}"
+      win_field=",\"windows_path\":\"${win_path_escaped}\""
+    fi
+  fi
+  printf '{"branch":"%s","worktree":true,"path":"%s"%s,"layout":"%s"}\n' \
+    "$BRANCH_NAME" "$WT_TARGET" "$win_field" "$LAYOUT"
 else
   echo "WORKTREE=true"
   echo "BRANCH=$BRANCH_NAME"
   echo "PATH=$WT_TARGET"
+  if is_windows_env; then
+    win_path="$(resolve_windows_path "$WT_TARGET")"
+    if [[ -n "$win_path" ]]; then
+      echo "WINDOWS_PATH=$win_path"
+    fi
+  fi
   echo "LAYOUT=$LAYOUT"
 fi
