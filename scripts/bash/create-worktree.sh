@@ -324,18 +324,27 @@ fi
 RESOLVED_BASE=$(resolve_base_ref)
 
 if git -C "$REPO_ROOT" show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
-  # Branch exists locally — attach worktree to it
+  # 1. Branch exists locally — attach worktree to it
   if ! git -C "$REPO_ROOT" worktree add "$WT_TARGET" "$BRANCH_NAME" 2>/dev/null; then
     echo "Error: git worktree add failed for existing branch '$BRANCH_NAME' at '$WT_TARGET'." >&2
     exit 1
   fi
+elif git -C "$REPO_ROOT" show-ref --verify --quiet "refs/remotes/origin/$BRANCH_NAME"; then
+  # 2. Branch exists on remote — create local branch tracking its own remote branch (origin/$BRANCH_NAME)
+  if ! git -C "$REPO_ROOT" worktree add --track -b "$BRANCH_NAME" "$WT_TARGET" "origin/$BRANCH_NAME" 2>/dev/null; then
+    echo "Error: git worktree add failed for remote branch 'origin/$BRANCH_NAME' at '$WT_TARGET'." >&2
+    exit 1
+  fi
 else
-  # Create new branch + worktree from base ref
-  if ! git -C "$REPO_ROOT" worktree add -b "$BRANCH_NAME" "$WT_TARGET" "$RESOLVED_BASE" 2>/dev/null; then
-    echo "Error: git worktree add -b '$BRANCH_NAME' at '$WT_TARGET' from '$RESOLVED_BASE' failed." >&2
+  # 3. Brand new branch — create from base ref without upstream tracking
+  # Note: Use --no-track so new feature branch does not track the base ref (e.g. origin/main)
+  if ! git -C "$REPO_ROOT" worktree add --no-track -b "$BRANCH_NAME" "$WT_TARGET" "$RESOLVED_BASE" 2>/dev/null; then
+    echo "Error: git worktree add --no-track -b '$BRANCH_NAME' at '$WT_TARGET' from '$RESOLVED_BASE' failed." >&2
     echo "Run 'git fetch' or use --in-place if worktrees are not available." >&2
     exit 1
   fi
+  # Extra safety net: ensure no upstream tracking was configured for the new branch
+  git -C "$REPO_ROOT" branch --unset-upstream "$BRANCH_NAME" 2>/dev/null || true
 fi
 
 # --- post-creation pointer fixes for WSL Windows launches ---

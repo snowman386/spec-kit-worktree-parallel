@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.4 (2026-08-28)
+
+### Fixed
+- Prevent new feature worktrees from tracking `origin/main` when branched from remote refs: added `--no-track` to `git worktree add` and explicit upstream unset safety net
+- Automatic detection and checkout of existing remote branches (`origin/<branch>`), linking them to their own remote counterparts rather than `origin/main`
+
 ## 1.4.3 (2026-08-27)
 
 ### Added
