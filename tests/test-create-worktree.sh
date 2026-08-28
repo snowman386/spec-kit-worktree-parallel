@@ -35,6 +35,24 @@ cleanup() {
     rm -rf "$TEMP_DIR"
     TEMP_DIR=""
   fi
+  if [[ -n "${REMOTE_DIR:-}" ]] && [[ -d "$REMOTE_DIR" ]]; then
+    rm -rf "$REMOTE_DIR"
+    REMOTE_DIR=""
+  fi
+}
+
+setup_temp_repo_with_remote() {
+  REMOTE_DIR=$(python3 -c "import os,tempfile; print(os.path.realpath(tempfile.mkdtemp()))")
+  git -C "$REMOTE_DIR" init --bare -b main >/dev/null 2>&1
+  TEMP_DIR=$(python3 -c "import os,tempfile; print(os.path.realpath(tempfile.mkdtemp()))")
+  git -C "$TEMP_DIR" init -b main >/dev/null 2>&1
+  echo "init" > "$TEMP_DIR/README.md"
+  git -C "$TEMP_DIR" add . && git -C "$TEMP_DIR" commit -m "init" >/dev/null 2>&1
+  git -C "$TEMP_DIR" remote add origin "$REMOTE_DIR"
+  git -C "$TEMP_DIR" push -u origin main >/dev/null 2>&1
+  mkdir -p "$TEMP_DIR/specs"
+  cd "$TEMP_DIR"
+  echo "$TEMP_DIR"
 }
 
 assert_eq() {
@@ -319,6 +337,70 @@ echo "[22] WSL Windows-launch with backslash Windows drive letter --repo-root"
 output=$(SPECIFY_FORCE_WSL=1 SPECIFY_FORCE_WSL_WIN_LAUNCH=1 bash "$CREATE_SCRIPT" --json --dry-run --repo-root 'C:\Users\test\myrepo' 005-win-bs)
 assert_contains "worktree dry-run accepts backslash Windows --repo-root" '"branch":"005-win-bs"' "$output"
 assert_contains "worktree dry-run normalizes backslash Windows --repo-root" '"path":"C:/Users/test/myrepo/.worktrees/005-win-bs"' "$output"
+
+# Test 23: Worktree branch created from repo with origin/main does NOT track origin/main
+echo "[23] Worktree branch does not track origin/main"
+TEMP_DIR=$(setup_temp_repo_with_remote)
+trap cleanup EXIT
+output=$(bash "$CREATE_SCRIPT" --json --repo-root "$TEMP_DIR" 005-no-origin-link 2>/dev/null)
+assert_contains "worktree created" '"worktree":true' "$output"
+
+# Verify that upstream tracking is not configured for origin/main or any remote
+remote_track=$(git -C "$TEMP_DIR" config "branch.005-no-origin-link.remote" 2>/dev/null || true)
+merge_track=$(git -C "$TEMP_DIR" config "branch.005-no-origin-link.merge" 2>/dev/null || true)
+TOTAL=$((TOTAL + 1))
+if [[ -z "$remote_track" && -z "$merge_track" ]]; then
+  PASS=$((PASS + 1))
+  echo "  PASS: new worktree branch has no upstream remote/merge tracking"
+else
+  FAIL=$((FAIL + 1))
+  echo "  FAIL: new worktree branch is tracking upstream: remote='$remote_track', merge='$merge_track'"
+fi
+git -C "$TEMP_DIR" worktree remove "$TEMP_DIR/.worktrees/005-no-origin-link" 2>/dev/null || true
+cleanup; trap - EXIT
+
+# Test 24: Explicit --base-ref origin/main does NOT track origin/main
+echo "[24] Worktree with explicit --base-ref origin/main does not track origin/main"
+TEMP_DIR=$(setup_temp_repo_with_remote)
+trap cleanup EXIT
+output=$(bash "$CREATE_SCRIPT" --json --repo-root "$TEMP_DIR" --base-ref origin/main 005-explicit-base 2>/dev/null)
+assert_contains "worktree created with explicit base-ref" '"worktree":true' "$output"
+
+remote_track=$(git -C "$TEMP_DIR" config "branch.005-explicit-base.remote" 2>/dev/null || true)
+merge_track=$(git -C "$TEMP_DIR" config "branch.005-explicit-base.merge" 2>/dev/null || true)
+TOTAL=$((TOTAL + 1))
+if [[ -z "$remote_track" && -z "$merge_track" ]]; then
+  PASS=$((PASS + 1))
+  echo "  PASS: explicit base-ref worktree has no upstream tracking"
+else
+  FAIL=$((FAIL + 1))
+  echo "  FAIL: explicit base-ref worktree is tracking upstream: remote='$remote_track', merge='$merge_track'"
+fi
+git -C "$TEMP_DIR" worktree remove "$TEMP_DIR/.worktrees/005-explicit-base" 2>/dev/null || true
+cleanup; trap - EXIT
+
+# Test 25: Branch existing on remote (origin/foo) is checked out tracking origin/foo
+echo "[25] Remote branch existing on origin is checked out tracking its own remote branch"
+TEMP_DIR=$(setup_temp_repo_with_remote)
+trap cleanup EXIT
+# Push a branch directly to remote origin
+git -C "$TEMP_DIR" checkout -b 005-remote-feature >/dev/null 2>&1
+echo "feature" > "$TEMP_DIR/feature.txt"
+git -C "$TEMP_DIR" add . && git -C "$TEMP_DIR" commit -m "feature commit" >/dev/null 2>&1
+git -C "$TEMP_DIR" push -u origin 005-remote-feature >/dev/null 2>&1
+# Switch back to main and delete local feature branch so it only exists on remote
+git -C "$TEMP_DIR" checkout main >/dev/null 2>&1
+git -C "$TEMP_DIR" branch -D 005-remote-feature >/dev/null 2>&1
+
+output=$(bash "$CREATE_SCRIPT" --json --repo-root "$TEMP_DIR" 005-remote-feature 2>/dev/null)
+assert_contains "worktree created for remote branch" '"worktree":true' "$output"
+
+remote_track=$(git -C "$TEMP_DIR" config "branch.005-remote-feature.remote" 2>/dev/null || true)
+merge_track=$(git -C "$TEMP_DIR" config "branch.005-remote-feature.merge" 2>/dev/null || true)
+assert_eq "remote is origin" "origin" "$remote_track"
+assert_eq "merge is refs/heads/005-remote-feature" "refs/heads/005-remote-feature" "$merge_track"
+git -C "$TEMP_DIR" worktree remove "$TEMP_DIR/.worktrees/005-remote-feature" 2>/dev/null || true
+cleanup; trap - EXIT
 
 # --- summary ---
 echo ""

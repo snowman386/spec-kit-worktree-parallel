@@ -13,3 +13,11 @@
 
 3. **Line Endings for Shell Scripts**:
    - Shell scripts (`*.sh`) executed in WSL from Windows checkouts must preserve `LF` line endings (`.gitattributes: *.sh text eol=lf`) to avoid syntax errors with carriage returns (`\r`).
+
+4. **Remote Tracking Prevention on Worktree Creation**:
+   - When branching off a remote ref (`origin/main`, `origin/master`), `git worktree add -b <branch> <path> <base-ref>` automatically sets `branch.<name>.remote` and `branch.<name>.merge` to track that remote ref due to git's `branch.autoSetupMerge` behavior.
+   - New feature worktrees must never track `origin/main` as their upstream branch.
+   - Using `git worktree add --no-track -b ...` (and running `git branch --unset-upstream <branch>` as a safety net) ensures new feature branches start isolated with no upstream remote tracking configured until explicitly pushed.
+   - If the branch already exists on remote (`refs/remotes/origin/<branch>`), `create-worktree.sh` creates the branch tracking `origin/<branch>` (its own remote counterpart, not `origin/main`).
+
+

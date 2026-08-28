@@ -67,7 +67,9 @@ Environment variable `SPECIFY_WORKTREE_PATH` overrides the computed path entirel
 
    If the script is unavailable (e.g., non-bash environment), perform the equivalent operations directly:
    - Resolve the worktree path based on layout config
-   - Run `git worktree add -b <branch> <path> <base-ref>` (new branch) or `git worktree add <path> <branch>` (existing branch)
+   - If branch exists locally: `git worktree add <path> <branch>`
+   - If branch exists on remote (`origin/<branch>`): `git worktree add --track -b <branch> <path> origin/<branch>`
+   - If branch is new: `git worktree add --no-track -b <branch> <path> <base-ref>`
    - For nested layout, ensure `.worktrees/` is in `.gitignore`
 
 3. **Verify spec artifacts**: Prefer `specs/<branch>/` **in the worktree** when using a worktree-first workflow. If `/speckit.specify` ran on the primary checkout first (`after_specify` hook order), artifacts may still be under the primary tree — report where they actually are.
@@ -96,4 +98,4 @@ Environment variable `SPECIFY_WORKTREE_PATH` overrides the computed path entirel
 - **One worktree per branch** — refuse to create a duplicate; report the existing path instead
 - **Never modify the primary checkout** — worktree operations happen in the new directory only
 - **Always update .gitignore for nested layout** — add the `dotworktrees_dir` value if not present
-- **New vs existing branch** — if the branch does not exist locally, `git worktree add -b` creates it from the configured base ref; if it already exists, the worktree attaches to it. Do not assume the Git extension ran `speckit.git.feature` first (it may be disabled for parallel worktrees)
+- **New vs existing branch** — if the branch exists locally, the worktree attaches to it; if it exists on remote (`origin/<branch>`), it checks out and tracks that remote branch; if it does not exist at all, `git worktree add --no-track -b` creates a new branch from base ref without linking to `origin/main`. Do not assume the Git extension ran `speckit.git.feature` first (it may be disabled for parallel worktrees)
