@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.3 (2026-08-27)
+
+### Added
+- `/speckit.worktrees.specify` command for a worktree-first specify workflow: create or reuse the feature worktree before writing spec artifacts, then continue the normal Spec Kit flow from the worktree root
+- VS Code handoff guidance for `/speckit.worktrees.specify`: optional `--open-vscode` behavior, configurable `code -n <worktree-path>` new-window default, and explicit reuse/print modes
+- In-memory WSL git bridge in `create-worktree.sh` and `post-install.sh` to translate Windows `.git` pointers (`gitdir: C:/...`) during WSL execution without altering Windows paths on disk
+- Primary repo root resolution via `git rev-parse --git-common-dir` allowing worktree creation from inside an active worktree without creating nested sub-worktrees
+- `.gitattributes` to enforce `LF` line endings on `*.sh` scripts across Windows and WSL checkouts
+
 ## 1.4.2 (2026-08-18)
 
 ### Added
